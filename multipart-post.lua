@@ -91,7 +91,7 @@ local function data_len(d)
     end
 end
 
-local function content_length(t, boundary, ctx)
+local function content_length(t, boundary, ctx, d)
     local r = ctx and ctx.headers_length or 0
     for k, v in pairs(t) do
         if not ctx then
@@ -100,6 +100,32 @@ local function content_length(t, boundary, ctx)
             r = r + #table.concat(tmp)
         end
         r = r + data_len(v) + 2; -- `\r\n`
+    end
+    for k, v in pairs(d) do
+        local _t = type(v)
+        if _t == "table" then
+            if #v > 0 then
+                -- list
+                for _, item in ipairs(v) do
+                    if not ctx then
+                        local tmp = {}
+                        encode_header_to_table(tmp, k, item, boundary)
+                        r = r + #table.concat(tmp)
+                    end
+                    r = r + data_len(item) + 2; -- `\r\n`
+                end
+            else
+                -- table
+                error("invalid input")
+            end
+        else
+            if not ctx then
+                local tmp = {}
+                encode_header_to_table(tmp, k, v, boundary)
+                r = r + #table.concat(tmp)
+            end
+            r = r + data_len(v) + 2; -- `\r\n`
+        end
     end
     return r + #boundary + 6; -- `--BOUNDARY--\r\n`
 end
@@ -131,7 +157,7 @@ local function set_ltn12_blksz(sz)
 end
 _M.set_ltn12_blksz = set_ltn12_blksz
 
-local function source(t, boundary, ctx)
+local function source(t, boundary, ctx, d)
     local sources, n = {}, 1
     for k, v in pairs(t) do
         sources[n] = encode_header_as_source(k, v, boundary, ctx)
@@ -139,12 +165,34 @@ local function source(t, boundary, ctx)
         sources[n+2] = ltn12.source.string("\r\n")
         n = n + 3
     end
+    for k, v in pairs(d) do
+        local _t = type(v)
+        if _t == "table" then
+            if #v > 0 then
+                -- list
+                for _, item in ipairs(v) do
+                    sources[n] = encode_header_as_source(k, item, boundary, ctx)
+                    sources[n+1] = get_data_src(item)
+                    sources[n+2] = ltn12.source.string("\r\n")
+                    n = n + 3
+                end
+            else
+                -- table
+                error("invalid input")
+            end
+        else
+            sources[n] = encode_header_as_source(k, v, boundary, ctx)
+            sources[n+1] = get_data_src(v)
+            sources[n+2] = ltn12.source.string("\r\n")
+            n = n + 3
+        end
+    end
     sources[n] = ltn12.source.string(string.format("--%s--\r\n", boundary))
     return ltn12.source.cat(unpack(sources))
 end
 _M.source = source
 
-function _M.gen_request(t)
+function _M.gen_request(t, d)
     local boundary = gen_boundary()
     -- This is an optimization to avoid re-encoding headers twice.
     -- The length of the headers is stored when computing the source,
@@ -152,9 +200,9 @@ function _M.gen_request(t)
     local ctx = {headers_length = 0}
     return {
         method = "POST",
-        source = source(t, boundary, ctx),
+        source = source(t, boundary, ctx, d),
         headers = {
-            ["content-length"] = content_length(t, boundary, ctx),
+            ["content-length"] = content_length(t, boundary, ctx, d),
             ["content-type"] = fmt(
                 "multipart/form-data; boundary=%s", boundary
             ),

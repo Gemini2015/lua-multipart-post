@@ -1,3 +1,27 @@
+# 改动
+
+## 支持带array的table数据
+
+```lua
+local mp = require "multipart-post"
+local http = require "socket.http"
+
+local files = { file = { name = 'file name', data = file_handle, len = file_length }}
+local data = {
+    param = 'value',
+    array = {
+        'item1',
+        'item2',
+    },
+    -- dict = { key = 'value '}, not support
+}
+local rq = mp.gen_request(files, data)
+rq.url = "http://httpbin.org/post"
+local b, c, h = http.request(rq)
+```
+
+--------
+
 # multipart-post
 
 ![CI Status](https://github.com/catwell/lua-multipart-post/actions/workflows/ci.yml/badge.svg?branch=master)
